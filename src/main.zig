@@ -1,16 +1,35 @@
 const std = @import("std");
-const print = std.debug.print;
+const builtin = @import("builtin");
+
+const printErr = std.log.err;
+const printMsg = std.log.info;
+
+const ytdlp = @import("ytdlp.zig");
 
 pub fn main(init: std.process.Init) !void {
-    const runResult = std.process.run(init.gpa, init.io, .{ .argv = &.{ "ytdlp", "-U" } }) catch |err| switch (err) {
-        error.FileNotFound => {
-            print("could not find the executable ytdlp in path\n", .{});
-            return error.ytdlpExecutableNotFound;
-        },
-        else => return err,
-    };
-    defer init.gpa.free(runResult.stdout);
-    defer init.gpa.free(runResult.stderr);
+    var arena = std.heap.ArenaAllocator.init(init.gpa);
+    defer arena.deinit();
 
-    print("program finished, {s}, {any}\n", .{ runResult.stdout, runResult.term.exited });
+    const alloc = switch (builtin.mode) {
+        .Debug => init.gpa,
+        else => arena.allocator(),
+    };
+    const io = init.io;
+
+    const ytdlpVersion = try ytdlp.checkVersion(alloc, io);
+    defer alloc.free(ytdlpVersion);
+
+    printMsg("ytdlp version: {s}", .{ytdlpVersion});
+
+    ytdlp.update(alloc, io) catch |e| printErr("error {any} updating version\n", .{e});
+
+    const meta = try ytdlp.retrieveMetadata(alloc, io, "https://www.youtube.com/watch?v=QWdDzqT-JJ0");
+    defer meta.deinit();
+
+    printMsg("id {s} - title {s}", .{ meta.value.id, meta.value.title });
+
+    const filename = try std.fmt.allocPrint(alloc, "{s} - [{s}]", .{ meta.value.title, meta.value.id });
+    defer alloc.free(filename);
+
+    try ytdlp.downloadAudio(alloc, io, "https://www.youtube.com/watch?v=QWdDzqT-JJ0", filename);
 }
