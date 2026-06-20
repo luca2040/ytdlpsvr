@@ -86,35 +86,84 @@ pub fn retrieveMetadata(alloc: Allocator, io: Io, url: []const u8) !std.json.Par
     return parsed;
 }
 
+const Progress = struct {
+    status: []u8,
+    percent: f32,
+    downloaded: u64,
+    total: u64,
+    speed: f32,
+    eta: u64,
+};
+
 pub fn downloadAudio(alloc: Allocator, io: Io, url: []const u8, filepath: []const u8) !void {
     const progressTemplate =
-        \\PROGRESS{"status":"%(progress.status)s","percent":%(progress.percent)s,"downloaded":%(progress.downloaded_bytes)s,"total":%(progress.total_bytes)s,"speed":%(progress.speed)s,"eta":%(progress.eta)s}
-    ;
+        "PROGRESS{\"status\":\"%(progress.status)s\",\"percent\":%(progress.percent|0)s,\"downloaded\":%(progress.downloaded_bytes|0)s,\"total\":%(progress.total_bytes|0)s,\"speed\":%(progress.speed|0)s,\"eta\":%(progress.eta|0)s}";
 
-    const runResult = try std.process.run(alloc, io, .{ .argv = &.{
-        "ytdlp",
-        "--no-playlist",
-        "-f",
-        "bestaudio",
-        "-o",
-        filepath,
-        "-x",
-        "--audio-format",
-        "mp3",
-        "--newline",
-        "--progress-delta",
-        "1",
-        "--progress-template",
-        progressTemplate,
-        url,
-    } });
-    defer alloc.free(runResult.stdout);
-    defer alloc.free(runResult.stderr);
+    var child = try std.process.spawn(io, .{
+        .argv = &.{
+            "ytdlp",
+            "--no-playlist",
+            "-f",
+            "bestaudio",
+            "-o",
+            filepath,
+            "-x",
+            "--audio-format",
+            "mp3",
+            "--newline",
+            "--progress-delta",
+            "1",
+            "--progress-template",
+            progressTemplate,
+            url,
+        },
+        .stdout = .pipe,
+        .stderr = .pipe,
+    });
 
-    switch (runResult.term) {
+    var buffer: [4096]u8 = undefined;
+
+    while (true) {
+        const n = child.stdout.?.readStreaming(io, &.{&buffer}) catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => return err,
+        };
+
+        if (n == 0) {
+            continue;
+        }
+
+        const data = buffer[0..n];
+
+        if (std.mem.startsWith(u8, data, "PROGRESS")) {
+            const parsed = try std.json.parseFromSlice(Progress, alloc, data[8..n], .{});
+            defer parsed.deinit();
+
+            const pval = parsed.value;
+            var percent = pval.percent;
+
+            if (percent == 0)
+                percent = @as(f32, @floatFromInt(pval.downloaded)) / @as(f32, @floatFromInt(pval.total));
+
+            printMsg(
+                "status: {s}\npercent: {d}%\ndownloaded: {d}\ntotal: {d}\nspeed: {d}\neta: {d}",
+                .{
+                    pval.status,
+                    percent * 100.0,
+                    pval.downloaded,
+                    pval.total,
+                    pval.speed,
+                    pval.eta,
+                },
+            );
+        }
+    }
+
+    const term = try child.wait(io);
+    switch (term) {
         .exited => |code| {
             if (code != 0) {
-                printErr("error {d} downloading audio: {s} {s}", .{ runResult.term.exited, runResult.stdout, runResult.stderr });
+                printErr("error code {d} downloading", .{code});
                 return error.ytdlpErrorDownloadingAudio;
             }
         },
@@ -123,6 +172,4 @@ pub fn downloadAudio(alloc: Allocator, io: Io, url: []const u8, filepath: []cons
             return error.ytdlpErrorDownloadingAudio;
         },
     }
-
-    printMsg("{s}", .{runResult.stdout});
 }
