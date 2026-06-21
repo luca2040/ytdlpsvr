@@ -1,0 +1,12 @@
+.{
+    .name = .ytdlpsvr,
+    .version = "0.16.0",
+    .dependencies = .{
+        .httpz = .{
+            .url = "git+https://github.com/karlseguin/http.zig?ref=master#20076ad87f91eb068ee14376ddba02c2331b6ce9",
+            .hash = "httpz-0.0.0-PNVzrIDeCABKV7yA3QNNPMvThuact7-XyawnWsmVyeuP",
+        },
+    },
+    .paths = .{""},
+    .fingerprint = 0xfb5bce1fad74160e,
+}
