@@ -7,6 +7,10 @@ const printMsg = std.log.info;
 
 const ytdlp = @import("ytdlp.zig");
 
+// i love this zig feature
+const indexPageData = @embedFile("index.html");
+const styleFileData = @embedFile("style.css");
+
 const AppState = struct {
     io: std.Io,
     lastUpdateTime: i64,
@@ -34,11 +38,35 @@ pub fn main(init: std.process.Init) !void {
     }
 
     var router = try server.router(.{});
+
+    router.get("/", serveIndex, .{});
+    router.get("/index", serveIndex, .{});
+    router.get("/style.css", serveStyle, .{});
+
     router.get("/download", downloadAudio, .{});
 
     try server.listen();
 }
 
+fn serveIndex(
+    _: *AppState,
+    _: *httpz.Request,
+    res: *httpz.Response,
+) !void {
+    res.status = 200;
+    res.body = indexPageData;
+}
+
+fn serveStyle(
+    _: *AppState,
+    _: *httpz.Request,
+    res: *httpz.Response,
+) !void {
+    res.status = 200;
+    res.body = styleFileData;
+}
+
+// i know this code is a mess, but i had to rush it since i needed this program and didnt want to waste time
 fn downloadAudio(
     appState: *AppState,
     req: *httpz.Request,
@@ -95,17 +123,39 @@ fn downloadAudio(
         return;
     };
 
-    printMsg("starting download of url: {s}", .{url});
+    var musicData: ?[]u8 = null;
 
-    const musicData = ytdlp.downloadAudio(res.arena, appState.io, url) catch |e| {
-        printErr("error {any}", .{e});
+    for (0..3) |n| {
+        printMsg(
+            "try n.{d} - starting download of url: {s}",
+            .{ n + 1, url },
+        );
 
+        musicData = ytdlp.downloadAudio(
+            res.arena,
+            appState.io,
+            url,
+        ) catch |err| {
+            printErr(
+                "download attempt failed: {any}",
+                .{err},
+            );
+
+            continue;
+        };
+
+        break;
+    }
+
+    if (musicData == null) {
         res.status = 500;
+
         try res.json(.{
             .err = "error downloading audio",
         }, .{});
+
         return;
-    };
+    }
 
     printMsg("download finished", .{});
 
@@ -135,11 +185,11 @@ fn downloadAudio(
         std.fmt.allocPrint(
             res.arena,
             "{d}",
-            .{musicData.len},
+            .{musicData.?.len},
         ) catch unreachable,
     );
 
-    res.body = musicData;
+    res.body = musicData.?;
 }
 
 fn sanitizeFilename(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
@@ -157,6 +207,14 @@ fn sanitizeFilename(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
             '<',
             '>',
             '|',
+            '%',
+            '&',
+            '#',
+            ';',
+            '$',
+            '\'',
+            '`',
+            127,
             => {
                 try out.append(allocator, '_');
             },

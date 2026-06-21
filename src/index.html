@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Downloader</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="container">
+    <section class="card">
+        <h1>Audio Downloader</h1>
+        <p class="subtitle">
+            Paste a video URL and download the audio.
+        </p>
+        <form id="download-form">
+            <div class="input-row">
+                <input
+                    id="url"
+                    type="url"
+                    placeholder="Paste video URL..."
+                    autocomplete="off"
+                    required
+                >
+                <button type="submit">
+                    Download
+                </button>
+            </div>
+        </form>
+        <p id="status"></p>
+    </section>
+</main>
+
+<script>
+const form = document.getElementById("download-form");
+const input = document.getElementById("url");
+const status = document.getElementById("status");
+
+function setStatus(message, type) {
+    status.textContent = message;
+    status.className = type;
+}
+
+form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const url = input.value.trim();
+
+    if (!url)
+        return;
+
+    setStatus("Downloading...", "loading");
+
+    try {
+        const response = await fetch(
+            "/download?url=" + encodeURIComponent(url)
+        );
+
+        if (!response.ok) {
+            setStatus(
+                "Something went wrong. Please retry.",
+                "error"
+            );
+            return;
+        }
+
+        const blob = await response.blob();
+        const downloadUrl =
+            URL.createObjectURL(blob);
+
+        const a = document.createElement("a");
+        a.href = downloadUrl;
+
+        const disposition =
+            response.headers.get("Content-Disposition");
+        let filename = "audio.mp3";
+
+        if (disposition) {
+            const match =
+                disposition.match(/filename="(.+)"/);
+            if (match)
+                filename = match[1];
+        }
+
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+
+        URL.revokeObjectURL(downloadUrl);
+
+        setStatus(
+            "Download complete.",
+            "success"
+        );
+    }
+    catch (err) {
+        setStatus(
+            "Something went wrong. Please retry.",
+            "error"
+        );
+    }
+});
+</script>
+
+</body>
+</html>
