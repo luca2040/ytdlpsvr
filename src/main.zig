@@ -30,7 +30,7 @@ pub fn main(init: std.process.Init) !void {
     };
 
     var server = try httpz.Server(*AppState).init(init.io, allocator, .{
-        .address = .all(5882),
+        .address = .all(5284),
     }, &state);
     defer {
         server.stop();
